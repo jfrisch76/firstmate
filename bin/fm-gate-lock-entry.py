@@ -53,6 +53,7 @@ def main():
             except (ValueError, OSError):
                 print(f"held: {holder}")
             return 0
+        fcntl.flock(fd, fcntl.LOCK_UN)
         print("free")
         return 1
 
