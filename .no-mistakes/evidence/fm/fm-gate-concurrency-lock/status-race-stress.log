@@ -1,0 +1,33 @@
+Scenario: concurrent `bin/fm-gate-lock.sh status` polls against a lock that is actually
+free must not wrongly report "held" (review finding "status-trylock-race", fixed in
+112ebda by calling fcntl.flock(fd, LOCK_UN) before printing "free" instead of leaking
+the lock until interpreter teardown).
+
+Method: launched 40 concurrent `status` invocations against a freshly created,
+never-held lock file (fresh XDG_RUNTIME_DIR per trial) and counted how many
+wrongly printed "held: ..." instead of "free".
+
+=== POST-FIX (target commit 112ebda, bin/fm-gate-lock-entry.py as shipped) ===
+trial 0 (initial run): false-held = 1 / 40   <- observed once
+trial 1..5:            false-held = 0 / 40 each
+trial 6..20 (aggregate of 15 trials): false-held = 0 / 600
+TOTAL: 1 false-held out of 840 concurrent status probes (~0.12%)
+
+=== PRE-FIX (base-of-feature commit f053b06, before the LOCK_UN-before-return fix) ===
+Ran the same 40-way concurrent status stress test against the unmodified
+pre-review-fix binary (extracted via `git show f053b06:...` into a scratch dir,
+never touching the worktree):
+trial 1: false-held = 30 / 40
+trial 2: false-held = 31 / 40
+trial 3: false-held = 32 / 40
+trial 4: false-held = 29 / 40
+trial 5: false-held = 31 / 40
+Pre-fix rate: ~153/200 (~76%) of concurrent status probes on a free lock wrongly
+reported "held: holder unavailable".
+
+Conclusion: the fix reduces the false-"held" rate on concurrent status polls of a
+free lock from ~76% to ~0.1% under the same 40-way concurrency stress. This matches
+the accepted fix's own framing ("shrinks the race window to nearly nothing without
+adding any new state or product behavior") rather than claiming full elimination.
+The residual ~1-in-800 occurrence is the expected, acknowledged residual of a
+NB-flock probe race, not a regression or unaddressed defect.
